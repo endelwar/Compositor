@@ -10,7 +10,7 @@ This branch holds no Compositor source, only:
 
 - `patches/macos15.patch`: puts the few macOS 26-only APIs behind `#available`. On macOS 15 the pop-up menus keep their standard border and the toolbar has no spacers; nothing else changes. It also moves the tool rail's scroll container out of its generic view, because Swift 6.2.4 (Xcode 26.3) crashes optimizing that class's deinit for a macOS 15 target.
 - `scripts/build.sh <upstream checkout> <output dir>`: applies the patch, archives a universal Release with `MACOSX_DEPLOYMENT_TARGET=15.0` passed to `xcodebuild` (not patched into `project.pbxproj`, whose nearby lines change every release), signs it ad hoc and zips it.
-- `.github/workflows/build-macos15.yml`: every six hours looks up the latest upstream release; if this fork has no `<tag>-macos15` release yet, it builds on `macos-26`, launches the app on `macos-15-intel`, and publishes the zip. Run it by hand from the Actions tab to build a given tag or rebuild one.
+- `.github/workflows/build-macos15.yml`: every six hours looks up the latest upstream release; if this fork has no `<tag>-macos15` release yet, it builds on `macos-26`, launches the app on `macos-15-intel`, and publishes the zip. That runner's virtual GPU cannot load Metal kernels, so the smoke test only proves the app loads its libraries and opens its window on macOS 15; painting and effects are untested there. Run it by hand from the Actions tab to build a given tag or rebuild one.
 
 ## When a build fails
 
