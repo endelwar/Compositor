@@ -1,0 +1,126 @@
+name: Build for macOS 15
+
+# Upstream releases cannot trigger workflows in a fork, so the latest release is polled.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream tag to build (empty for the latest release)
+        required: false
+      force:
+        description: Rebuild even if this fork already has a release for the tag
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-macos15
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM: robbietilton/Compositor
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      build: ${{ steps.release.outputs.build }}
+    steps:
+      - name: Find the release to build
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          tag="${INPUT_TAG:-$(gh release view --repo "$UPSTREAM" --json tagName --jq .tagName)}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$FORCE" != "true" ]] && gh release view "$tag-macos15" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag-macos15 already exists."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Building $tag."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout the build scripts
+        uses: actions/checkout@v7
+        with:
+          path: fork
+
+      - name: Checkout upstream ${{ needs.check.outputs.tag }}
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.UPSTREAM }}
+          ref: ${{ needs.check.outputs.tag }}
+          path: upstream
+
+      # The Xcode upstream CI uses; see its .github/workflows/verify.yml.
+      - name: Select Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Build
+        run: fork/scripts/build.sh upstream dist
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v7
+        with:
+          name: compositor-macos15
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # Launches the app on the oldest system and architecture this build is for.
+  smoke:
+    needs: build
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - name: Download the app
+        uses: actions/download-artifact@v8
+        with:
+          name: compositor-macos15
+
+      - name: Launch it
+        run: |
+          sw_vers
+          uname -m
+          ditto -x -k Compositor-*-macos15.zip .
+          open Compositor.app
+          sleep 20
+          pgrep -x Compositor || { echo "Compositor is not running."; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
+          pkill -x Compositor
+
+  release:
+    needs: [check, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the app
+        uses: actions/download-artifact@v8
+        with:
+          name: compositor-macos15
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          notes="Unofficial build of [Compositor $TAG](https://github.com/$UPSTREAM/releases/tag/$TAG) for macOS 15 or later, Intel and Apple silicon.
+
+          Signed ad hoc and not notarized: on first launch, allow it in System Settings > Privacy & Security > Open Anyway, or run \`xattr -dr com.apple.quarantine Compositor.app\`."
+          gh release delete "$TAG-macos15" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$TAG-macos15" Compositor-*-macos15.zip --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "Compositor $TAG for macOS 15" --notes "$notes"

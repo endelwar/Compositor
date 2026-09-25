@@ -1,0 +1,109 @@
+diff --git a/Compositor/ContentView.swift b/Compositor/ContentView.swift
+index 9cfba1c..b4ffdb8 100644
+--- a/Compositor/ContentView.swift
++++ b/Compositor/ContentView.swift
+@@ -157,7 +157,7 @@ struct ContentView: View {
+                     .disabled(session.isImporting || session.showsBusy || session.levels != nil)
+                     .modifier(NewProjectDropTarget(workspace: applicationDelegate?.workspace))
+             }
+-            ToolbarSpacer(.fixed, placement: .navigation)
++            if #available(macOS 26.0, *) { ToolbarSpacer(.fixed, placement: .navigation) }
+             if let workspace = applicationDelegate?.workspace {
+                 ToolbarItem(placement: .navigation) {
+                     ProjectTabStrip(workspace: workspace)
+@@ -166,11 +166,11 @@ struct ContentView: View {
+                         // strip scrolls instead.
+                         .frame(width: max(200, windowWidth - 352), height: 34, alignment: .center)
+                 }
+-                .sharedBackgroundVisibility(.hidden)
++                .hidingSharedBackground()
+             }
+             // Absorb all remaining navigation-toolbar width before the zoom controls.
+             // Without this spacer, the growing tab strip pushes the primary actions left.
+-            ToolbarSpacer(.flexible, placement: .navigation)
++            if #available(macOS 26.0, *) { ToolbarSpacer(.flexible, placement: .navigation) }
+             ToolbarItem(placement: .primaryAction) {
+                 Button("Fit") { session.fit() }.help("Fit canvas in window (⌘0)")
+                     .accessibilityIdentifier("fitCanvas").disabled(session.document == nil)
+diff --git a/Compositor/UI/BlendModePicker.swift b/Compositor/UI/BlendModePicker.swift
+index cf2448f..d93d791 100644
+--- a/Compositor/UI/BlendModePicker.swift
++++ b/Compositor/UI/BlendModePicker.swift
+@@ -17,7 +17,7 @@ struct BlendModePicker: NSViewRepresentable {
+         button.action = #selector(Coordinator.choose(_:))
+         button.setAccessibilityLabel("Blend mode")
+         // A capsule like the SwiftUI buttons and menus (`roundedControls`), which don't reach this AppKit pop-up.
+-        button.borderShape = .capsule
++        if #available(macOS 26.0, *) { button.borderShape = .capsule }
+         return button
+     }
+     func updateNSView(_ button: NSPopUpButton, context: Context) {
+diff --git a/Compositor/UI/IndicatorlessScrollView.swift b/Compositor/UI/IndicatorlessScrollView.swift
+index 44add06..ce5fb67 100644
+--- a/Compositor/UI/IndicatorlessScrollView.swift
++++ b/Compositor/UI/IndicatorlessScrollView.swift
+@@ -6,20 +6,23 @@ import SwiftUI
+ struct IndicatorlessScrollView<Content: View>: NSViewRepresentable {
+     @ViewBuilder let content: () -> Content
+ 
+-    func makeNSView(context: Context) -> Container {
+-        Container(rootView: content())
++    func makeNSView(context: Context) -> IndicatorlessScrollContainer {
++        IndicatorlessScrollContainer(rootView: AnyView(content()))
+     }
+ 
+-    func updateNSView(_ view: Container, context: Context) {
+-        view.host.rootView = content()
++    func updateNSView(_ view: IndicatorlessScrollContainer, context: Context) {
++        view.host.rootView = AnyView(content())
+         view.host.invalidateIntrinsicContentSize()
+         view.updateDocumentSize()
+     }
++}
+ 
+-    final class Container: NSScrollView {
+-        let host: NSHostingView<Content>
++// Not nested in the generic view: Swift 6.2.4 crashes optimizing the deinit of a generic NSView subclass when
++// targeting macOS 15.
++final class IndicatorlessScrollContainer: NSScrollView {
++        let host: NSHostingView<AnyView>
+ 
+-        init(rootView: Content) {
++        init(rootView: AnyView) {
+             host = NSHostingView(rootView: rootView)
+             super.init(frame: .zero)
+             drawsBackground = false
+@@ -44,5 +47,4 @@ struct IndicatorlessScrollView<Content: View>: NSViewRepresentable {
+             if host.frame.size != size { host.setFrameSize(size) }
+             verticalScrollElasticity = height > contentView.bounds.height + 1 ? .allowed : .none
+         }
+-    }
+ }
+diff --git a/Compositor/UI/ToolbarCompatibility.swift b/Compositor/UI/ToolbarCompatibility.swift
+new file mode 100644
+index 0000000..905092a
+--- /dev/null
++++ b/Compositor/UI/ToolbarCompatibility.swift
+@@ -0,0 +1,9 @@
++import SwiftUI
++
++extension ToolbarContent {
++    /// `sharedBackgroundVisibility` exists only on macOS 26, where it keeps the tab strip off the toolbar's glass
++    /// background. Earlier systems have no shared background to hide, so the item is returned unchanged.
++    @ToolbarContentBuilder func hidingSharedBackground() -> some ToolbarContent {
++        if #available(macOS 26.0, *) { self.sharedBackgroundVisibility(.hidden) } else { self }
++    }
++}
+diff --git a/Compositor/UI/TypeControls.swift b/Compositor/UI/TypeControls.swift
+index 3aeeae5..bfcb0cc 100644
+--- a/Compositor/UI/TypeControls.swift
++++ b/Compositor/UI/TypeControls.swift
+@@ -94,7 +94,7 @@ private struct TypeFontPicker: NSViewRepresentable {
+     func makeNSView(context: Context) -> NSPopUpButton {
+         let button = FixedWidthPopUpButton(frame: .zero, pullsDown: false)
+         button.addItem(withTitle: fontName)
+-        button.borderShape = .capsule
++        if #available(macOS 26.0, *) { button.borderShape = .capsule }
+         // A long font name is cut off at its end rather than widening the control or scrolling its start away.
+         button.cell?.lineBreakMode = .byTruncatingTail
+         button.cell?.usesSingleLineMode = true
