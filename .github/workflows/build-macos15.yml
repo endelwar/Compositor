@@ -96,11 +96,21 @@ jobs:
         run: |
           sw_vers
           uname -m
+          system_profiler SPDisplaysDataType | grep -E 'Chipset|Metal' || true
           ditto -x -k Compositor-*-macos15.zip .
-          open Compositor.app
+          Compositor.app/Contents/MacOS/Compositor > compositor.log 2>&1 &
+          pid=$!
           sleep 20
-          pgrep -x Compositor || { echo "Compositor is not running."; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
-          pkill -x Compositor
+          if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"
+            exit 0
+          fi
+          wait "$pid" && status=0 || status=$?
+          echo "Compositor exited with status $status."
+          cat compositor.log
+          log show --last 2m --style compact --predicate 'process == "Compositor"' | tail -60
+          ls -R ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | grep -i compositor || true
+          exit 1
 
   release:
     needs: [check, smoke]
